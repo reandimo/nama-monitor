@@ -46,6 +46,8 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
+          SLACK_MENTION_USER_IDS: ${{ vars.SLACK_MENTION_USER_IDS }}
+          SLACK_MENTION_USER_ID: ${{ vars.SLACK_MENTION_USER_ID }}
         run: node scripts/diagnose.mjs
 
       - name: Notify success

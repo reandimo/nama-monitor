@@ -64,7 +64,15 @@ Respond in English, in exactly this format:
   if (msg.type === 'result') report = msg.result;
 }
 
-const text = `🚨 *NAMA FUNNEL DOWN* 🚨\n_Meta/Google Ads still spending_\n\n${report}`;
+// Accepts one or many Slack member IDs, separated by commas or whitespace.
+// Backward-compat: also reads the singular SLACK_MENTION_USER_ID.
+const userIds = (process.env.SLACK_MENTION_USER_IDS ?? process.env.SLACK_MENTION_USER_ID ?? '')
+  .split(/[\s,]+/)
+  .filter(Boolean);
+
+const mention = userIds.length ? userIds.map((id) => `<@${id}>`).join(' ') + ' ' : '';
+
+const text = `${mention}🚨 *NAMA FUNNEL DOWN* 🚨\n_Meta/Google Ads still spending_\n\n${report}`;
 
 const webhook = process.env.SLACK_WEBHOOK_URL;
 if (!webhook) {
