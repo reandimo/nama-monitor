@@ -7,6 +7,13 @@ const ctx = fs.existsSync('results.json')
 
 const SITES = ['https://heynama.com', 'https://getnama.com'];
 
+// Model is configurable via CLAUDE_MODEL env var. Default: Sonnet 4.6 (balanced
+// cost/quality for browser-driven diagnosis). Other valid values:
+//   claude-haiku-4-5  → cheaper/faster, may miss subtle clues
+//   claude-opus-4-7   → highest quality, ~5x cost vs Sonnet
+const MODEL = process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-6';
+console.log(`Using model: ${MODEL}`);
+
 let report = '';
 for await (const msg of query({
   prompt: `URGENT: the Nama funnel E2E test failed. Meta Ads and Google Ads are actively spending money on these sites:
@@ -44,6 +51,7 @@ Respond in English, in exactly this format:
 - LIKELY CAUSE (be specific — point to a plugin, a token, a concrete selector)
 - SUGGESTED ACTION (e.g. roll back woo-fly-cart, regenerate Storefront token in Shopify.php, restock product, contact hosting)`,
   options: {
+    model: MODEL,
     mcpServers: {
       playwright: { command: 'npx', args: ['@playwright/mcp@latest', '--headless'] },
     },
