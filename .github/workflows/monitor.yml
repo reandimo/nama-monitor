@@ -48,6 +48,19 @@ jobs:
           CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
         run: node scripts/diagnose.mjs
 
+      - name: Notify success
+        # Heartbeat solo en full e2e (cada 30 min) o disparos manuales —
+        # el smoke /5 min sería 288 mensajes/día, demasiado ruido.
+        if: |
+          steps.pw.outcome == 'success' &&
+          (github.event.schedule == '*/30 * * * *' || github.event_name == 'workflow_dispatch')
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL_SUCCESS: ${{ secrets.SLACK_WEBHOOK_URL_SUCCESS }}
+          MONITOR_SCOPE: ${{ steps.scope.outputs.grep }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: node scripts/notify-success.mjs
+
       - uses: actions/upload-artifact@v4
         if: steps.pw.outcome == 'failure'
         with:
