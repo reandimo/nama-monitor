@@ -5,6 +5,11 @@ on:
     - cron: "*/30 * * * *"  # full e2e cada 30 min
   workflow_dispatch:
 
+# Minimum permissions for the GITHUB_TOKEN. The workflow only reads code +
+# uploads artifacts; no write access to the repo, packages, or PRs is needed.
+permissions:
+  contents: read
+
 jobs:
   monitor:
     runs-on: ubuntu-latest
