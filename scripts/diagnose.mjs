@@ -56,6 +56,9 @@ Respond in English, in exactly this format:
       playwright: { command: 'npx', args: ['@playwright/mcp@latest', '--headless'] },
     },
     maxTurns: 30,
+    // CI runs unattended — auto-approve Playwright MCP tool calls so the agent
+    // can actually navigate, screenshot, and inspect the live sites.
+    permissionMode: 'bypassPermissions',
   },
 })) {
   if (msg.type === 'result') report = msg.result;
