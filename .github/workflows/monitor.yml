@@ -1,0 +1,61 @@
+name: Nama Funnel Monitor
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # smoke cada 5 min
+    - cron: "*/30 * * * *"  # full e2e cada 30 min
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Decide scope
+        id: scope
+        run: |
+          if [[ "${{ github.event.schedule }}" == "*/5 * * * *" ]]; then
+            echo "grep=smoke" >> $GITHUB_OUTPUT
+          else
+            echo "grep=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run tests
+        id: pw
+        continue-on-error: true
+        run: |
+          if [[ -n "${{ steps.scope.outputs.grep }}" ]]; then
+            npx playwright test --grep "${{ steps.scope.outputs.grep }}"
+          else
+            npx playwright test
+          fi
+
+      - name: Diagnose with Claude
+        if: steps.pw.outcome == 'failure'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: node scripts/diagnose.mjs
+
+      - uses: actions/upload-artifact@v4
+        if: steps.pw.outcome == 'failure'
+        with:
+          name: pw-report-${{ github.run_id }}
+          path: |
+            test-results/
+            results.json
+          retention-days: 14
+
+      - name: Fail
+        if: steps.pw.outcome == 'failure'
+        run: exit 1

@@ -1,0 +1,20 @@
+{
+  "name": "nama-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Synthetic funnel monitor for heynama.com and getnama.com. Runs Playwright E2E in GitHub Actions and dispatches a Claude-driven diagnose-and-Slack pipeline on failure.",
+  "scripts": {
+    "test": "playwright test",
+    "test:smoke": "playwright test --grep smoke",
+    "diagnose": "node scripts/diagnose.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@playwright/mcp": "^0.0.30"
+  }
+}
