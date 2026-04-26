@@ -1,8 +1,8 @@
 name: Nama Funnel Monitor
 on:
   schedule:
-    - cron: "*/5 * * * *"   # smoke cada 5 min
-    - cron: "*/30 * * * *"  # full e2e cada 30 min
+    - cron: "*/15 * * * *"   # smoke cada 15 min
+    - cron: "*/30 * * * *"   # full e2e cada 30 min
   workflow_dispatch:
 
 # Minimum permissions for the GITHUB_TOKEN. The workflow only reads code +
@@ -13,7 +13,7 @@ permissions:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -29,7 +29,7 @@ jobs:
       - name: Decide scope
         id: scope
         run: |
-          if [[ "${{ github.event.schedule }}" == "*/5 * * * *" ]]; then
+          if [[ "${{ github.event.schedule }}" == "*/15 * * * *" ]]; then
             echo "grep=smoke" >> $GITHUB_OUTPUT
           else
             echo "grep=" >> $GITHUB_OUTPUT
@@ -45,8 +45,27 @@ jobs:
             npx playwright test
           fi
 
-      - name: Diagnose with Claude
+      # Cloudflare Bot Fight Mode occasionally challenges the runner even with
+      # stealth enabled. Those challenges clear within 1–3 min. Re-run once after
+      # a 90s pause; if the second run is green, the first was a CF flake and
+      # we suppress the alert. Only fires when the first run failed.
+      - name: Debounce — re-run after CF challenge cooldown
+        id: pw-retry
         if: steps.pw.outcome == 'failure'
+        continue-on-error: true
+        run: |
+          sleep 90
+          rm -f results.json
+          if [[ -n "${{ steps.scope.outputs.grep }}" ]]; then
+            npx playwright test --grep "${{ steps.scope.outputs.grep }}"
+          else
+            npx playwright test
+          fi
+
+      - name: Diagnose with Claude
+        # Only fire if BOTH attempts failed — single-shot failures are almost
+        # always Cloudflare flakes given the IP-based bot scoring on GH Actions.
+        if: steps.pw.outcome == 'failure' && steps.pw-retry.outcome == 'failure'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -57,9 +76,10 @@ jobs:
 
       - name: Notify success
         # Heartbeat solo en full e2e (cada 30 min) o disparos manuales —
-        # el smoke /5 min sería 288 mensajes/día, demasiado ruido.
+        # el smoke /15 min sería 96 mensajes/día, demasiado ruido.
+        # Tests cuentan como success si la corrida inicial pasó O si el debounce pasó.
         if: |
-          steps.pw.outcome == 'success' &&
+          (steps.pw.outcome == 'success' || steps.pw-retry.outcome == 'success') &&
           (github.event.schedule == '*/30 * * * *' || github.event_name == 'workflow_dispatch')
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -69,7 +89,7 @@ jobs:
         run: node scripts/notify-success.mjs
 
       - uses: actions/upload-artifact@v4
-        if: steps.pw.outcome == 'failure'
+        if: steps.pw.outcome == 'failure' && steps.pw-retry.outcome == 'failure'
         with:
           name: pw-report-${{ github.run_id }}
           path: |
@@ -78,5 +98,5 @@ jobs:
           retention-days: 14
 
       - name: Fail
-        if: steps.pw.outcome == 'failure'
+        if: steps.pw.outcome == 'failure' && steps.pw-retry.outcome == 'failure'
         run: exit 1
