@@ -13,7 +13,7 @@ permissions:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -65,7 +65,10 @@ jobs:
       - name: Diagnose with Claude
         # Only fire if BOTH attempts failed — single-shot failures are almost
         # always Cloudflare flakes given the IP-based bot scoring on GH Actions.
+        id: diag
         if: steps.pw.outcome == 'failure' && steps.pw-retry.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 9
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -73,6 +76,22 @@ jobs:
           SLACK_MENTION_USER_IDS: ${{ vars.SLACK_MENTION_USER_IDS }}
           SLACK_MENTION_USER_ID: ${{ vars.SLACK_MENTION_USER_ID }}
         run: node scripts/diagnose.mjs
+
+      - name: Fallback Slack alert if diagnose did not complete
+        # Belt-and-suspenders: if the diagnose step crashed or got cancelled
+        # before its own internal 8-min timeout could fire (e.g. job-level
+        # timeout, OOM, network drop), still get a message into Slack.
+        if: |
+          steps.pw.outcome == 'failure' && steps.pw-retry.outcome == 'failure' &&
+          steps.diag.outcome != 'success'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_MENTION_USER_IDS: ${{ vars.SLACK_MENTION_USER_IDS }}
+          SLACK_MENTION_USER_ID: ${{ vars.SLACK_MENTION_USER_ID }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: node scripts/notify-diagnose-failed.mjs
 
       - name: Notify success
         # Heartbeat solo en full e2e (cada 30 min) o disparos manuales —
