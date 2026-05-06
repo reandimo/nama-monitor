@@ -1,5 +1,15 @@
 import { test, expect, type Locator } from '@playwright/test';
-import { bypassAgeGate, clickAgeGateIfPresent } from './utils';
+import { bypassAgeGate, clickAgeGateIfPresent, isCloudflareChallenge, recordTestFailure } from './utils';
+
+// On any test failure, classify whether it was caused by a Cloudflare bot
+// challenge. The workflow uses the resulting log files (failures.log,
+// cf-failures.log) to decide whether to fire a Slack alert — CF-only failures
+// are suppressed.
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status === testInfo.expectedStatus) return;
+  const cfChallenge = await isCloudflareChallenge(page);
+  recordTestFailure(testInfo.title, cfChallenge);
+});
 
 const SITES = [
   { name: 'heynama', baseURL: 'https://heynama.com' },

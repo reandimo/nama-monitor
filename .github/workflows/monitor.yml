@@ -39,6 +39,7 @@ jobs:
         id: pw
         continue-on-error: true
         run: |
+          rm -f failures.log cf-failures.log
           if [[ -n "${{ steps.scope.outputs.grep }}" ]]; then
             npx playwright test --grep "${{ steps.scope.outputs.grep }}"
           else
@@ -55,18 +56,40 @@ jobs:
         continue-on-error: true
         run: |
           sleep 90
-          rm -f results.json
+          rm -f results.json failures.log cf-failures.log
           if [[ -n "${{ steps.scope.outputs.grep }}" ]]; then
             npx playwright test --grep "${{ steps.scope.outputs.grep }}"
           else
             npx playwright test
           fi
 
-      - name: Diagnose with Claude
-        # Only fire if BOTH attempts failed — single-shot failures are almost
-        # always Cloudflare flakes given the IP-based bot scoring on GH Actions.
-        id: diag
+      # Classify the second-attempt failures: real funnel breakage vs the runner
+      # itself being blocked by Cloudflare. CF-only failures don't get a Slack
+      # alert — they're noise the team can't act on.
+      - name: Classify failure (real vs Cloudflare-only)
+        id: classify
         if: steps.pw.outcome == 'failure' && steps.pw-retry.outcome == 'failure'
+        run: |
+          total=0
+          cf=0
+          [ -f failures.log ] && total=$(wc -l < failures.log | tr -d ' ')
+          [ -f cf-failures.log ] && cf=$(wc -l < cf-failures.log | tr -d ' ')
+          echo "total_failures=$total" >> $GITHUB_OUTPUT
+          echo "cf_failures=$cf" >> $GITHUB_OUTPUT
+          if [ "$total" -gt 0 ] && [ "$total" = "$cf" ]; then
+            echo "all_cf=true" >> $GITHUB_OUTPUT
+            echo "::notice::All $total failures were Cloudflare bot challenges. Skipping Slack alert."
+          else
+            echo "all_cf=false" >> $GITHUB_OUTPUT
+            echo "::notice::Failures: $total total, $cf classified as Cloudflare. Diagnose will run."
+          fi
+
+      - name: Diagnose with Claude
+        # Only fire if BOTH attempts failed AND the failures aren't all
+        # Cloudflare challenges. Single-shot failures and CF-only failures
+        # are suppressed.
+        id: diag
+        if: steps.pw.outcome == 'failure' && steps.pw-retry.outcome == 'failure' && steps.classify.outputs.all_cf != 'true'
         continue-on-error: true
         timeout-minutes: 9
         env:
@@ -81,8 +104,10 @@ jobs:
         # Belt-and-suspenders: if the diagnose step crashed or got cancelled
         # before its own internal 8-min timeout could fire (e.g. job-level
         # timeout, OOM, network drop), still get a message into Slack.
+        # Suppressed when the failures were all Cloudflare challenges.
         if: |
           steps.pw.outcome == 'failure' && steps.pw-retry.outcome == 'failure' &&
+          steps.classify.outputs.all_cf != 'true' &&
           steps.diag.outcome != 'success'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -117,5 +142,9 @@ jobs:
           retention-days: 14
 
       - name: Fail
-        if: steps.pw.outcome == 'failure' && steps.pw-retry.outcome == 'failure'
+        # Mark the workflow run red only when the failure is actionable — a
+        # CF-only failure means the runner was blocked, not the funnel.
+        if: |
+          steps.pw.outcome == 'failure' && steps.pw-retry.outcome == 'failure' &&
+          steps.classify.outputs.all_cf != 'true'
         run: exit 1
