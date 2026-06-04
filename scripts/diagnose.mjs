@@ -80,7 +80,23 @@ Respond in English, in exactly this format:
   if (ac.signal.aborted) {
     timedOut = true;
   } else {
-    failedReason = err instanceof Error ? err.message : String(err);
+    // Surface the full error to the workflow log — SDK errors may not be plain
+    // Error instances or may have empty `.message`, leaving Slack with
+    // "unknown error". This block guarantees the log captures everything.
+    console.error('Diagnose query failed. Raw error:');
+    console.error(err);
+    if (err && typeof err === 'object') {
+      console.error('name:', err.name);
+      console.error('constructor:', err.constructor?.name);
+      try {
+        console.error('serialized:', JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
+      } catch {
+        // serialization failed — ignore, raw dump above is enough
+      }
+    }
+    failedReason = err instanceof Error
+      ? (err.message || err.name || 'Error instance with no message')
+      : String(err);
   }
 } finally {
   clearTimeout(timeoutHandle);
@@ -92,21 +108,28 @@ const userIds = (process.env.SLACK_MENTION_USER_IDS ?? process.env.SLACK_MENTION
 
 const mention = userIds.length ? userIds.map((id) => `<@${id}>`).join(' ') + ' ' : '';
 
+// Build a link to the workflow run so the on-call can open the log directly
+// from the Slack alert. Available when running in GitHub Actions.
+const runUrl = (process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID)
+  ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+  : '';
+const runLink = runUrl ? `\n\n_<${runUrl}|View workflow run →>_` : '';
+
 let text;
 if (report) {
   const partialNote = timedOut ? '\n\n_⚠️ Diagnosis truncated — wall-clock timeout reached. Conclusions may be incomplete._' : '';
-  text = `${mention}🚨 *NAMA FUNNEL DOWN* 🚨\n_Meta/Google Ads still spending_\n\n${report}${partialNote}`;
+  text = `${mention}🚨 *NAMA FUNNEL DOWN* 🚨\n_Meta/Google Ads still spending_\n\n${report}${partialNote}${runLink}`;
 } else if (timedOut) {
   text = `${mention}🚨 *NAMA FUNNEL DOWN* 🚨\n_Meta/Google Ads still spending_\n\n` +
     `Tests failed twice but the AI diagnose timed out after ${TIMEOUT_MS / 1000 / 60} min before producing a verdict. ` +
     `Most common cause: Cloudflare bot challenge keeping the runner from reaching the site.\n\n` +
     `*Manual check (60 sec):* open https://heynama.com from mobile data (not VPN/office). ` +
     `If it loads → likely Cloudflare false positive, funnel is fine for users. ` +
-    `If it doesn't → real outage, pause ad spend.`;
+    `If it doesn't → real outage, pause ad spend.${runLink}`;
 } else {
   text = `${mention}🚨 *NAMA FUNNEL DOWN* 🚨\n_Meta/Google Ads still spending_\n\n` +
     `Tests failed twice and the AI diagnose script crashed: ${failedReason || 'unknown error'}.\n\n` +
-    `*Manual check required* — verify https://heynama.com loads from mobile data.`;
+    `*Manual check required* — verify https://heynama.com loads from mobile data.${runLink}`;
 }
 
 const webhook = process.env.SLACK_WEBHOOK_URL;

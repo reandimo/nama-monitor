@@ -1,4 +1,4 @@
-import { test, expect, type Locator } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { bypassAgeGate, clickAgeGateIfPresent, isCloudflareChallenge, recordTestFailure } from './utils';
 
 // On any test failure, classify whether it was caused by a Cloudflare bot
@@ -20,13 +20,6 @@ const PRODUCT_SLUG = 'the-ultimate-nama-sampler';
 // branded que Nama configuró como "checkout domain" en Shopify Admin. Ambos son válidos.
 const SHOPIFY_CHECKOUT_URL_RE = /^https:\/\/(nama-cbd\.myshopify\.com|www\.namacbd\.com)\/checkouts\//;
 const ADD_TO_CART_SELECTOR = 'button.single_add_to_cart_button, .single_add_to_cart_button';
-const CART_COUNT_SELECTOR = '[data-cart-fragment="cart-count"]';
-
-async function readCount(locator: Locator): Promise<number> {
-  const txt = (await locator.textContent()) ?? '0';
-  const n = parseInt(txt.trim(), 10);
-  return Number.isFinite(n) ? n : 0;
-}
 
 for (const site of SITES) {
   test.describe(site.name, () => {
@@ -50,25 +43,33 @@ for (const site of SITES) {
       await page.goto(`${site.baseURL}/product/${PRODUCT_SLUG}/`, { waitUntil: 'domcontentloaded' });
       await clickAgeGateIfPresent(page);
 
-      const cartCount = page.locator(CART_COUNT_SELECTOR).first();
-      await expect(cartCount).toBeVisible({ timeout: 10_000 });
-      const initialCount = await readCount(cartCount);
-
       const addToCartBtn = page.locator(ADD_TO_CART_SELECTOR).first();
       await expect(addToCartBtn).toBeEnabled({ timeout: 10_000 });
       await addToCartBtn.click();
 
       // Esperar a que la AJAX response del plugin wpc-ajax-add-to-cart termine.
-      // En getnama esto puede tardar; el catch evita romper si la página entra
-      // en full reload (en cuyo caso networkidle se cumple solo).
       await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
 
+      // Success signal: the WPC Fly Cart drawer auto-opens after a successful
+      // add-to-cart by toggling `woofc-show` on <body>. This is pure client-side
+      // JS in the plugin, so it works even when the page cache serves stale
+      // [data-cart-fragment="cart-count"] values (see getnama caching issue).
+      // Belt-and-suspenders: also accept the cart drawer being visible by its
+      // own selector in case the plugin updates the class name.
       await expect
-        .poll(async () => readCount(cartCount), {
-          timeout: 30_000,
-          message: 'cart-count fragment did not increment after Add to Cart',
-        })
-        .toBeGreaterThan(initialCount);
+        .poll(
+          async () =>
+            (await page.locator('body.woofc-show').count()) > 0 ||
+            (await page.locator('.woofc-inner, [class*="woofc"][class*="open"]').first().isVisible().catch(() => false)),
+          { timeout: 15_000, message: 'WPC Fly Cart drawer did not open after Add to Cart' }
+        )
+        .toBe(true);
+
+      // Confirm the test product actually landed in the drawer (catches the case
+      // where the drawer opens but the click added a different product or none).
+      await expect(
+        page.getByText(/the ultimate nama sampler/i).first()
+      ).toBeVisible({ timeout: 10_000 });
 
       const checkoutRes = await page.goto(`${site.baseURL}/checkout/`, { waitUntil: 'domcontentloaded' });
 

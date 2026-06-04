@@ -98,6 +98,9 @@ jobs:
           CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-6' }}
           SLACK_MENTION_USER_IDS: ${{ vars.SLACK_MENTION_USER_IDS }}
           SLACK_MENTION_USER_ID: ${{ vars.SLACK_MENTION_USER_ID }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: node scripts/diagnose.mjs
 
       - name: Fallback Slack alert if diagnose did not complete
