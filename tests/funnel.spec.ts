@@ -67,8 +67,13 @@ for (const site of SITES) {
 
       // Confirm the test product actually landed in the drawer (catches the case
       // where the drawer opens but the click added a different product or none).
+      // Filter out header nav links — those reference the product in submenus
+      // but are hidden by default until a parent menu opens, causing false
+      // negatives on toBeVisible().
       await expect(
-        page.getByText(/the ultimate nama sampler/i).first()
+        page
+          .locator(`a[href*="/product/${PRODUCT_SLUG}"]:not(.header__nav-link)`)
+          .first()
       ).toBeVisible({ timeout: 10_000 });
 
       const checkoutRes = await page.goto(`${site.baseURL}/checkout/`, { waitUntil: 'domcontentloaded' });
