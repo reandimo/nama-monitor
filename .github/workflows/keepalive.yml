@@ -3,13 +3,18 @@ name: Keepalive
 # GitHub deshabilita los workflows con trigger `schedule` en repos públicos
 # cuando el repo pasa 60 días sin actividad. Este job hace un commit vacío dos
 # veces al mes para resetear ese contador y mantener vivo el monitor.
+#
+# El push va con un deploy key (secret KEEPALIVE_DEPLOY_KEY) en vez del
+# GITHUB_TOKEN, porque el ruleset "Branch Lock" cubre todas las ramas y solo
+# admite bypass de Admin y deploy keys — el GITHUB_TOKEN no es ninguno de los
+# dos. Si algún día se rota el deploy key, hay que actualizar ese secret.
 on:
   schedule:
     - cron: "0 3 1,15 * *"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   keepalive:
@@ -17,6 +22,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.KEEPALIVE_DEPLOY_KEY }}
 
       - name: Commit vacío
         run: |
