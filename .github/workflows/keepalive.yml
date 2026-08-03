@@ -1,0 +1,39 @@
+name: Keepalive
+
+# GitHub deshabilita los workflows con trigger `schedule` en repos públicos
+# cuando el repo pasa 60 días sin actividad. Este job hace un commit vacío dos
+# veces al mes para resetear ese contador y mantener vivo el monitor.
+on:
+  schedule:
+    - cron: "0 3 1,15 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Commit vacío
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keepalive [skip ci]"
+          git push
+
+      # Si el keepalive muere en silencio, el monitor se apaga 60 días después
+      # sin que nadie se entere. Avisamos por el mismo Slack del monitor.
+      - name: Avisar a Slack si falla
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -sS -X POST -H 'Content-type: application/json' \
+            --data "$(jq -n --arg url "$RUN_URL" \
+              '{text: ("⚠️ *Keepalive de nama-monitor falló*\nSin esto GitHub deshabilita el monitor por inactividad a los 60 días.\n" + $url), link_names: 1}')" \
+            "$SLACK_WEBHOOK_URL"
